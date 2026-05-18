@@ -98,10 +98,10 @@ pipeline {
 
     post {
         always {
-            j// This plugin reads the generated XML file and maps individual pass/fail metrics to the build UI
+            // This plugin reads the generated XML file and maps individual pass/fail metrics to the build UI
             junit testResults: 'test-results/*.xml', allowEmptyResults: true
 
-            archiveArtifacts artifacts: 'reports/report.html', allowEmptyResults: true
+            archiveArtifacts artifacts: 'reports/report.html', allowEmptyArchive: true
         }
         success {
             echo 'Tests passed'

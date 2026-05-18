@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+
 import pytest
 from playwright.sync_api import Playwright
 
@@ -6,7 +8,10 @@ from Utils.apiFrameworkBase  import APIUtils2
 from pageObjects.LoginPage import LoginPage
 
 # json file -> until -> access into test
-with open('playwright/data/credentials.json') as f:
+current_dir = Path(__file__).resolve().parent
+credentials_path = current_dir/"data"/"credentials.json"
+
+with open(credentials_path) as f:
     test_data = json.load(f)
     user_credentials_list = test_data['user_credentials']
 
