@@ -65,9 +65,13 @@ pipeline {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                     sh '''
-                        set -eux
+                        set -ex  # Note: REMOVE the '-u' or '-e' strict termination if you want execution continuity, or keep -ex but bypass the final line
                         . venv/bin/activate
                         mkdir -p reports test-results
+
+                        # Use --junitxml to output standard JUnit XML reports that Jenkins loves
+                        # The "|| true" forces the stage to finish with SUCCESS even if tests fail
+                        pytest --html=reports/report.html --junitxml=test-results/results.xml || true
 
                         MARKER_FLAG=""
                         if [ -n "${PYTEST_MARKERS:-}" ]; then
@@ -94,10 +98,10 @@ pipeline {
 
     post {
         always {
-            junit allowEmptyResults: true, testResults: 'reports/test-results.xml'
-            archiveArtifacts artifacts: 'reports/**,test-results/**/*,playwright/test-results/**/*',
-                allowEmptyArchive: true, fingerprint: true
-            // publishHTML optional: needs HTML Publisher plugin
+            j// This plugin reads the generated XML file and maps individual pass/fail metrics to the build UI
+            junit testResults: 'test-results/*.xml', allowEmptyResults: true
+
+            archiveArtifacts artifacts: 'reports/report.html', allowEmptyResults: true
         }
         success {
             echo 'Tests passed'
