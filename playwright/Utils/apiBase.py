@@ -11,7 +11,7 @@ ordersPayload = {
         ]
     }
 
-class APIUtils2:
+class APIUtils:
 
     def get_token(self, playwright: Playwright):
         userEmail = "rahulshetty@gmail.com"

@@ -2,7 +2,7 @@ import json
 import pytest
 from playwright.sync_api import Playwright
 
-from Utils.apiFrameworkBase  import APIUtils
+from Utils.apiFrameworkBase  import APIUtils2
 from pageObjects.LoginPage import LoginPage
 
 # json file -> until -> access into test
@@ -20,7 +20,7 @@ def test_e2e_web_api(playwright: Playwright, browserInstance, user_credentials):
     userEmail = user_credentials["userEmail"]
     userPassword = user_credentials["password"]
     # create an order -> get order ID
-    apiUtils = APIUtils()
+    apiUtils = APIUtils2()
     orderId = apiUtils.createOrder(playwright, user_credentials)
     #login
 
