@@ -1,41 +1,80 @@
 pipeline {
-    agent any
+    agent { label 'python3' }  // match your Jenkins agent label
+
+    options {
+        timestamps()
+        timeout(time: 60, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        disableConcurrentBuilds()
+    }
+
+    parameters {
+        choice(name: 'BROWSER', choices: ['chromium', 'firefox', 'webkit'], description: 'Playwright browser')
+        string(name: 'PYTEST_MARKERS', defaultValue: 'smoke', description: 'pytest -m expression; empty = all tests')
+        booleanParam(name: 'RUN_PARALLEL', defaultValue: false, description: 'pytest-xdist (use carefully with Playwright)')
+    }
 
     environment {
-        PYTHONUNBUFFERED = "1"
+        PYTHONUNBUFFERED = '1'
+        CI = 'true'
+        PLAYWRIGHT_BROWSERS_PATH = "${WORKSPACE}/.pw-browsers"
+        PLAYWRIGHT_HEADLESS=1
     }
 
     stages {
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Setup Environment & Playwright') {
+        stage('Python & Playwright setup') {
             steps {
                 sh '''
-                # Create and activate virtual environment
-                python3 -m venv venv
-                . venv/bin/activate
-
-                # Upgrade pip and install dependencies
-                pip install --upgrade pip
-                pip install -r requirements.txt
-
-                # CRITICAL FOR CI: Install Playwright browsers and OS-level dependencies
-                playwright install --with-deps chromium
+                    set -eux
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip
+                    pip install -r requirements.txt
+                    playwright install --with-deps chromium
                 '''
             }
         }
 
-        stage('Run Tests') {
+        stage('Inject secrets') {
+            steps {
+                withCredentials([file(credentialsId: 'playwright-credentials', variable: 'CREDS_FILE')]) {
+                    sh '''
+                        mkdir -p playwright/data
+                        cp "$CREDS_FILE" playwright/data/credentials.json
+                    '''
+                }
+            }
+        }
+
+        stage('Run tests') {
             steps {
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                     sh '''
-                    . venv/bin/activate
-                    # Run pytest, generate JUnit XML, and output Playwright artifacts
-                    pytest -v --junitxml=reports/test-results.xml --output=test-results/
+                        set -eux
+                        . venv/bin/activate
+                        mkdir -p reports test-results
+
+                        MARKER_FLAG=""
+                        if [ -n "${PYTEST_MARKERS}" ]; then
+                          MARKER_FLAG="-m ${PYTEST_MARKERS}"
+                        fi
+
+                        PARALLEL_FLAG=""
+                        if [ "${RUN_PARALLEL}" = "true" ]; then
+                          PARALLEL_FLAG="-n auto"
+                        fi
+
+                        cd playwright
+                        pytest -v $MARKER_FLAG $PARALLEL_FLAG \
+                          --browser "${BROWSER}" \
+                          --junitxml=../reports/test-results.xml \
+                          --html=../reports/report.html --self-contained-html
                     '''
                 }
             }
@@ -44,16 +83,18 @@ pipeline {
 
     post {
         always {
-            // It is safe to use double-slashes here because we are back in Groovy, not Bash!
-
-            // 1. Publish the Pytest XML report to the Jenkins UI (allowEmpty prevents crash if tests never run)
             junit allowEmptyResults: true, testResults: 'reports/test-results.xml'
-
-            // 2. Archive Playwright artifacts (traces, videos, screenshots) if any were generated
-            archiveArtifacts artifacts: 'test-results/**/*', allowEmptyArchive: true
-
-            // 3. Clean up the workspace so the Jenkins server doesn't run out of disk space
-            cleanWs()
+            archiveArtifacts artifacts: 'reports/**,test-results/**/*,playwright/test-results/**/*',
+                allowEmptyArchive: true, fingerprint: true
+            // publishHTML optional: needs HTML Publisher plugin
         }
+        success {
+            echo 'Tests passed'
+        }
+        failure {
+            echo 'Tests failed — check archived traces/videos under test-results/'
+        }
+        // Omit cleanWs() if you want to inspect workspace after failure
+        // cleanWs()
     }
 }
