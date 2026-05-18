@@ -2,7 +2,7 @@ import playwright
 import pytest
 from pytest_bdd import given, when, then, parsers, scenarios
 
-from Utils.apiBase import APIUtils
+from Utils.apiFrameworkBase import APIUtils2
 from pageObjects.LoginPage import LoginPage
 
 scenarios('features/orderTransaction.feature')
@@ -13,7 +13,7 @@ def shared_data():
 
 @given(parsers.parse('place the item order with {username} and {password}'))
 def place_item_order(playwright, username, password, shared_data):
-    apiUtils = APIUtils()
+    apiUtils = APIUtils2()
     user_credentials = {}
     user_credentials['userEmail'] = username
     user_credentials['password'] = password
