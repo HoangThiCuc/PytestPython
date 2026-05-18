@@ -2,11 +2,11 @@ import json
 import pytest
 from playwright.sync_api import Playwright
 
-from Utils.apiBase import APIUtils
+from Utils.apiFrameworkBase  import APIUtils
 from pageObjects.LoginPage import LoginPage
 
 # json file -> until -> access into test
-with open('data/credentials.json') as f:
+with open('playwright/data/credentials.json') as f:
     test_data = json.load(f)
     user_credentials_list = test_data['user_credentials']
 

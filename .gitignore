@@ -15,5 +15,6 @@ playwright-report/
 playwright/.cache/
 
 # Secrets — credentials must never be committed
+playwright/data/credentials.json
 .env
 *.secret.json

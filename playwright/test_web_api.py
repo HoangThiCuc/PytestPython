@@ -1,6 +1,7 @@
 from playwright.sync_api import Playwright, expect
 
-from Utils.apiBase import APIUtils
+from Utils.apiBase import APIUtils2
+
 
 def test_e2e_web_api(playwright: Playwright):
     browser = playwright.chromium.launch(headless=False)
@@ -9,7 +10,7 @@ def test_e2e_web_api(playwright: Playwright):
 
 
     # create an order -> get order ID
-    apiUtils = APIUtils()
+    apiUtils = APIUtils2()
     orderId = apiUtils.createOrder(playwright)
     #login
     page.goto('https://rahulshettyacademy.com/client')

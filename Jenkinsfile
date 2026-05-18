@@ -1,5 +1,5 @@
 pipeline {
-    agent { label 'python3' }  // match your Jenkins agent label
+    agent any  // match your Jenkins agent label
 
     options {
         timestamps()
@@ -43,14 +43,23 @@ pipeline {
 
         stage('Inject secrets') {
             steps {
-                withCredentials([file(credentialsId: 'playwright-credentials', variable: 'CREDS_FILE')]) {
-                    sh '''
-                        mkdir -p playwright/data
-                        cp "$CREDS_FILE" playwright/data/credentials.json
-                    '''
+                    // 1. Pull the secure file out of Jenkins' vault
+                    withCredentials([file(credentialsId: 'playwright-secret-json', variable: 'SECURE_CREDS')]) {
+                        sh '''
+                            set -eu
+
+                            # 2. Create the folder structure if it doesn't exist
+                            mkdir -p playwright/data
+
+                            # 3. Force-delete any stale/locked credentials file left over from a previous crash
+                            rm -f playwright/data/credentials.json
+
+                            # 4. Copy Jenkins' secure file into the exact path your Python code expects
+                            cp "$SECURE_CREDS" playwright/data/credentials.json
+                        '''
+                    }
                 }
             }
-        }
 
         stage('Run tests') {
             steps {
@@ -61,8 +70,10 @@ pipeline {
                         mkdir -p reports test-results
 
                         MARKER_FLAG=""
-                        if [ -n "${PYTEST_MARKERS}" ]; then
-                          MARKER_FLAG="-m ${PYTEST_MARKERS}"
+                        if [ -n "${PYTEST_MARKERS:-}" ]; then
+                            pytest -m "${PYTEST_MARKERS}" --html=reports/report.html
+                        else
+                            pytest --html=reports/report.html
                         fi
 
                         PARALLEL_FLAG=""
