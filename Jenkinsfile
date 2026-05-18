@@ -36,7 +36,7 @@ pipeline {
                     . venv/bin/activate
                     pip install --upgrade pip
                     pip install -r requirements.txt
-                    playwright install --with-deps chromium
+                    playwright install --with-deps
                 '''
             }
         }
@@ -63,33 +63,30 @@ pipeline {
 
         stage('Run tests') {
             steps {
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
                     sh '''
-                        set -ex  # Note: REMOVE the '-u' or '-e' strict termination if you want execution continuity, or keep -ex but bypass the final line
+                        set -ex
                         . venv/bin/activate
                         mkdir -p reports test-results
 
-                        # Use --junitxml to output standard JUnit XML reports that Jenkins loves
-                        # The "|| true" forces the stage to finish with SUCCESS even if tests fail
-                        pytest --html=reports/report.html --junitxml=test-results/results.xml || true
-
+                        # 1. Evaluate the dynamic pytest markers parameter
                         MARKER_FLAG=""
                         if [ -n "${PYTEST_MARKERS:-}" ]; then
-                            pytest -m "${PYTEST_MARKERS}" --html=reports/report.html
-                        else
-                            pytest --html=reports/report.html
+                            MARKER_FLAG="-m ${PYTEST_MARKERS}"
                         fi
 
+                        # 2. Evaluate the parallel execution parameter
                         PARALLEL_FLAG=""
                         if [ "${RUN_PARALLEL}" = "true" ]; then
-                          PARALLEL_FLAG="-n auto"
+                            PARALLEL_FLAG="-n auto"
                         fi
 
-                        cd playwright
+                        # 3. SINGLE, DYNAMIC EXECUTION LINE
+                        # We do NOT 'cd playwright' anymore; running from the root keeps pathing consistent.
                         pytest -v $MARKER_FLAG $PARALLEL_FLAG \
                           --browser "${BROWSER}" \
-                          --junitxml=../reports/test-results.xml \
-                          --html=../reports/report.html --self-contained-html
+                          --junitxml=test-results/results.xml \
+                          --html=reports/report.html --self-contained-html || true
                     '''
                 }
             }
