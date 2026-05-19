@@ -35,6 +35,7 @@ env:
   PYTHON_VERSION: '3.12'
   CI: 'true'
   # Do not set PLAYWRIGHT_HEADLESS here — tests use headless=False; Xvfb provides a virtual display.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   all-tests:
@@ -44,10 +45,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
@@ -97,7 +98,7 @@ jobs:
             --html=reports/report.html --self-contained-html
 
       - name: Publish JUnit test results
-        uses: dorny/test-reporter@v1
+        uses: dorny/test-reporter@v2
         if: always()
         with:
           name: All tests — Pytest results
@@ -106,7 +107,7 @@ jobs:
           fail-on-error: true
 
       - name: Upload HTML report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: all-tests-html-report
@@ -114,7 +115,7 @@ jobs:
           retention-days: 30
 
       - name: Upload Playwright failure artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: always()
         with:
           name: all-tests-playwright-artifacts
