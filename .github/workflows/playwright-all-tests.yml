@@ -1,0 +1,118 @@
+# Run the FULL pytest suite (no -m marker filter).
+# Use this workflow for regression / all tests. Use playwright-ci-cd.yml for smoke or CD.
+#
+# Triggers: manual run, nightly schedule, push/PR to main (optional full gate).
+# Secret required: PLAYWRIGHT_CREDENTIALS_JSON
+
+name: Playwright — All Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Playwright browser
+        type: choice
+        options: [chromium, firefox, webkit]
+        default: chromium
+  schedule:
+    # Daily at 02:00 UTC — disable by removing this block if not needed
+    - cron: '0 2 * * *'
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: playwright-all-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  CI: 'true'
+  PLAYWRIGHT_HEADLESS: '1'
+
+jobs:
+  all-tests:
+    name: Run all tests (no marker filter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          set -eux
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Inject test credentials
+        env:
+          PLAYWRIGHT_CREDENTIALS_JSON: ${{ secrets.PLAYWRIGHT_CREDENTIALS_JSON }}
+        run: |
+          set -eux
+          if [ -z "${PLAYWRIGHT_CREDENTIALS_JSON}" ]; then
+            echo "::error::Secret PLAYWRIGHT_CREDENTIALS_JSON is not set."
+            exit 1
+          fi
+          mkdir -p playwright/data
+          printf '%s\n' "$PLAYWRIGHT_CREDENTIALS_JSON" > playwright/data/credentials.json
+
+      - name: List collected tests
+        run: |
+          set -eux
+          echo "Collecting all tests (no -m filter)..."
+          pytest --collect-only -q
+
+      - name: Run all pytest tests
+        env:
+          BROWSER: ${{ inputs.browser || 'chromium' }}
+        run: |
+          set -eux
+          mkdir -p reports test-results
+          echo "Running full suite with browser=${BROWSER} (no marker filter)"
+          pytest -v \
+            --browser "${BROWSER}" \
+            --junitxml=test-results/results.xml \
+            --html=reports/report.html --self-contained-html
+
+      - name: Publish JUnit test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: All tests — Pytest results
+          path: test-results/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: all-tests-html-report
+          path: reports/
+          retention-days: 30
+
+      - name: Upload Playwright failure artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: all-tests-playwright-artifacts
+          path: test-results/
+          retention-days: 30

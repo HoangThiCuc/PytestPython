@@ -90,7 +90,9 @@ jobs:
       - name: Run pytest
         env:
           BROWSER: ${{ github.event_name == 'workflow_dispatch' && inputs.browser || vars.DEFAULT_BROWSER || 'chromium' }}
-          PYTEST_MARKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.pytest_markers || vars.DEFAULT_PYTEST_MARKERS || 'smoke' }}
+          # Do NOT use `|| 'smoke'` here — empty string is falsy in GitHub expressions,
+          # so `'' || 'smoke'` always becomes smoke even when you want all tests.
+          PYTEST_MARKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.pytest_markers || vars.DEFAULT_PYTEST_MARKERS || '' }}
         run: |
           set -eux
           mkdir -p reports test-results
@@ -98,6 +100,7 @@ jobs:
           if [ -n "${PYTEST_MARKERS}" ]; then
             MARKER_FLAG="-m ${PYTEST_MARKERS}"
           fi
+          echo "PYTEST_MARKERS='${PYTEST_MARKERS}' → pytest ${MARKER_FLAG:-<no -m filter, all tests>}"
           pytest -v $MARKER_FLAG \
             --browser "${BROWSER}" \
             --junitxml=test-results/results.xml \
