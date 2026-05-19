@@ -25,7 +25,7 @@ on:
       pytest_markers:
         description: pytest -m expression (empty = all tests)
         type: string
-        default: 
+        default: smoke
       publish_report_to_azure:
         description: Upload HTML report to Azure Blob Storage
         type: boolean
@@ -47,7 +47,7 @@ permissions:
 env:
   PYTHON_VERSION: '3.12'
   CI: 'true'
-  PLAYWRIGHT_HEADLESS: '1'
+  # Do not set PLAYWRIGHT_HEADLESS — tests use headless=False; Xvfb provides a virtual display.
 
 jobs:
   test:
@@ -72,8 +72,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: playwright install --with-deps chromium
+      - name: Install Playwright browsers (Chromium, Firefox, WebKit)
+        run: playwright install --with-deps chromium firefox webkit
+
+      - name: Install Xvfb (virtual display for headless=False on Linux CI)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Inject test credentials
         env:
@@ -100,8 +103,9 @@ jobs:
           if [ -n "${PYTEST_MARKERS}" ]; then
             MARKER_FLAG="-m ${PYTEST_MARKERS}"
           fi
-          echo "PYTEST_MARKERS='${PYTEST_MARKERS}' → pytest ${MARKER_FLAG:-<no -m filter, all tests>}"
-          pytest -v $MARKER_FLAG \
+          echo "PYTEST_MARKERS='${PYTEST_MARKERS}' → pytest ${MARKER_FLAG:-<no -m filter, all tests>} (under Xvfb)"
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            pytest -v $MARKER_FLAG \
             --browser "${BROWSER}" \
             --junitxml=test-results/results.xml \
             --html=reports/report.html --self-contained-html

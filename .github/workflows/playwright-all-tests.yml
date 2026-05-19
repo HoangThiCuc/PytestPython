@@ -34,7 +34,7 @@ permissions:
 env:
   PYTHON_VERSION: '3.12'
   CI: 'true'
-  PLAYWRIGHT_HEADLESS: '1'
+  # Do not set PLAYWRIGHT_HEADLESS here — tests use headless=False; Xvfb provides a virtual display.
 
 jobs:
   all-tests:
@@ -59,8 +59,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: playwright install --with-deps chromium
+      - name: Install Playwright browsers (Chromium, Firefox, WebKit)
+        run: playwright install --with-deps chromium firefox webkit
+
+      - name: Install Xvfb (virtual display for headless=False on Linux CI)
+        run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Inject test credentials
         env:
@@ -86,8 +89,9 @@ jobs:
         run: |
           set -eux
           mkdir -p reports test-results
-          echo "Running full suite with browser=${BROWSER} (no marker filter)"
-          pytest -v \
+          echo "Running full suite with browser=${BROWSER} under Xvfb (supports headless=False)"
+          xvfb-run --auto-servernum --server-args='-screen 0 1920x1080x24' \
+            pytest -v \
             --browser "${BROWSER}" \
             --junitxml=test-results/results.xml \
             --html=reports/report.html --self-contained-html
