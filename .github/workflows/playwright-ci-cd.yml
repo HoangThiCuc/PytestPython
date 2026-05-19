@@ -25,7 +25,7 @@ on:
       pytest_markers:
         description: pytest -m expression (empty = all tests)
         type: string
-        default: smoke
+        default: 
       publish_report_to_azure:
         description: Upload HTML report to Azure Blob Storage
         type: boolean
