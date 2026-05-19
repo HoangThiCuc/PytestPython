@@ -1,0 +1,212 @@
+# GitHub Actions — Pytest + Playwright CI/CD
+# Mirrors Jenkinsfile.azure / local pytest flow.
+#
+# Required repository secret:
+#   PLAYWRIGHT_CREDENTIALS_JSON — full JSON (same as playwright/data/credentials.json)
+#
+# Optional secrets / variables for Azure CD (see setup guide in repo docs or README):
+#   AZURE_CREDENTIALS, AZURE_RESOURCE_GROUP, AZURE_WEBAPP_NAME
+#   AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_CONTAINER
+
+name: Playwright CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: Playwright browser
+        type: choice
+        options: [chromium, firefox, webkit]
+        default: chromium
+      pytest_markers:
+        description: pytest -m expression (empty = all tests)
+        type: string
+        default: smoke
+      publish_report_to_azure:
+        description: Upload HTML report to Azure Blob Storage
+        type: boolean
+        default: false
+      deploy_to_azure:
+        description: Deploy zip to Azure App Service (main branch only)
+        type: boolean
+        default: false
+
+concurrency:
+  group: playwright-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+  pull-requests: write
+
+env:
+  PYTHON_VERSION: '3.12'
+  CI: 'true'
+  PLAYWRIGHT_HEADLESS: '1'
+
+jobs:
+  test:
+    name: Run Playwright tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: |
+          set -eux
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install --with-deps chromium
+
+      - name: Inject test credentials
+        env:
+          PLAYWRIGHT_CREDENTIALS_JSON: ${{ secrets.PLAYWRIGHT_CREDENTIALS_JSON }}
+        run: |
+          set -eux
+          if [ -z "${PLAYWRIGHT_CREDENTIALS_JSON}" ]; then
+            echo "::error::Secret PLAYWRIGHT_CREDENTIALS_JSON is not set."
+            exit 1
+          fi
+          mkdir -p playwright/data
+          printf '%s\n' "$PLAYWRIGHT_CREDENTIALS_JSON" > playwright/data/credentials.json
+
+      - name: Run pytest
+        env:
+          BROWSER: ${{ github.event_name == 'workflow_dispatch' && inputs.browser || vars.DEFAULT_BROWSER || 'chromium' }}
+          PYTEST_MARKERS: ${{ github.event_name == 'workflow_dispatch' && inputs.pytest_markers || vars.DEFAULT_PYTEST_MARKERS || 'smoke' }}
+        run: |
+          set -eux
+          mkdir -p reports test-results
+          MARKER_FLAG=""
+          if [ -n "${PYTEST_MARKERS}" ]; then
+            MARKER_FLAG="-m ${PYTEST_MARKERS}"
+          fi
+          pytest -v $MARKER_FLAG \
+            --browser "${BROWSER}" \
+            --junitxml=test-results/results.xml \
+            --html=reports/report.html --self-contained-html
+
+      - name: Publish JUnit test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Pytest results
+          path: test-results/*.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pytest-html-report
+          path: reports/
+          retention-days: 14
+
+      - name: Upload Playwright failure artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-test-results
+          path: test-results/
+          retention-days: 14
+
+  publish-reports-azure:
+    name: Publish reports to Azure Blob
+    needs: test
+    if: |
+      always() &&
+      needs.test.result != 'cancelled' &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.publish_report_to_azure == true) ||
+        (github.event_name != 'workflow_dispatch' && vars.PUBLISH_REPORTS_ON_PUSH == 'true')
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download HTML report
+        uses: actions/download-artifact@v4
+        with:
+          name: pytest-html-report
+          path: reports
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Upload report to Blob Storage
+        uses: azure/cli@v2
+        with:
+          azcliversion: 2.63.0
+          inlineScript: |
+            set -eux
+            az storage container create \
+              --account-name "${{ vars.AZURE_STORAGE_ACCOUNT }}" \
+              --name "${{ vars.AZURE_STORAGE_CONTAINER }}" \
+              --auth-mode login
+            az storage blob upload-batch \
+              --account-name "${{ vars.AZURE_STORAGE_ACCOUNT }}" \
+              --destination "${{ vars.AZURE_STORAGE_CONTAINER }}" \
+              --source reports \
+              --destination-path "${{ github.repository }}/${{ github.run_number }}/reports" \
+              --auth-mode login \
+              --overwrite
+
+  deploy-azure-webapp:
+    name: Deploy to Azure App Service
+    needs: test
+    if: |
+      needs.test.result == 'success' &&
+      github.ref == 'refs/heads/main' &&
+      (
+        (github.event_name == 'workflow_dispatch' && inputs.deploy_to_azure == true) ||
+        (github.event_name != 'workflow_dispatch' && vars.DEPLOY_ON_MAIN_PUSH == 'true')
+      )
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Build deployment package
+        run: |
+          set -eux
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          zip -r app.zip . \
+            -x ".git/*" "venv/*" ".pytest_cache/*" "__pycache__/*" "*/__pycache__/*" \
+               "reports/*" "test-results/*" ".pw-browsers/*" "playwright/data/credentials.json"
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to App Service
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ vars.AZURE_WEBAPP_NAME }}
+          package: app.zip
+          resource-group-name: ${{ vars.AZURE_RESOURCE_GROUP }}
